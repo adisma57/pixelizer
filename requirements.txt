@@ -1,0 +1,6 @@
+streamlit
+pandas
+numpy
+Pillow
+openpyxl
+reportlab
