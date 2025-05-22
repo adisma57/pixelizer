@@ -1,5 +1,5 @@
 import streamlit as st
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 import math
 import pandas as pd
 import numpy as np
@@ -9,13 +9,13 @@ import openpyxl
 from openpyxl.styles import PatternFill, Alignment, Font
 from openpyxl.utils import get_column_letter
 from collections import Counter
-
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
 from reportlab.platypus import Table, TableStyle, SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
+import zipfile, tempfile
 
 # Fonctions utilitaires
 def draw_block_grid(image, block_size, color=(255, 0, 0), width=1):
@@ -260,6 +260,121 @@ def split_grid(arr, size):
             blocks.append((i, j, arr[i:i+size, j:j+size]))
     return blocks
 
+def export_png_and_zip(code_grid, color_grid, alpha_grid, rgb_to_code, block_size, font_path=None):
+    from io import BytesIO
+    h, w = code_grid.shape
+
+    # 1. Image complète avec traits rouges
+    img_full = make_bead_grid_image(code_grid, color_grid, alpha_grid, rgb_to_code, bead_size=80, margin=10,
+                                    font_path=font_path, block_size=block_size, grid_color=(255,0,0))
+    buf_full = BytesIO()
+    img_full.save(buf_full, format='PNG')
+    buf_full.seek(0)
+
+    # 2. Création des blocs
+    code_blocks = split_grid(code_grid, block_size)
+    color_blocks = split_grid(color_grid, block_size)
+    alpha_blocks = split_grid(alpha_grid, block_size)
+    block_imgs = []
+    for (i, j, cblock), (_, _, clblock), (_, _, alblock) in zip(code_blocks, color_blocks, alpha_blocks):
+        block_name = f"{i//block_size},{j//block_size}"
+        img_block = make_bead_grid_image(cblock, clblock, alblock, rgb_to_code, bead_size=80, margin=10, block_name=block_name)
+        buf_block = BytesIO()
+        img_block.save(buf_block, format='PNG')
+        buf_block.seek(0)
+        block_imgs.append((block_name, buf_block))
+
+    # 3. Crée le ZIP
+    zip_buffer = BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w') as zipf:
+        # Ajoute l’image complète
+        zipf.writestr('image_complete.png', buf_full.read())
+        # Ajoute chaque bloc
+        for block_name, buf in block_imgs:
+            zipf.writestr(f'bloc_{block_name}.png', buf.read())
+    zip_buffer.seek(0)
+    return zip_buffer
+
+def make_bead_grid_image(code_grid, color_grid, alpha_grid, rgb_to_code, bead_size=80, margin=10, font_path=None, block_name=None, block_size=None, grid_color=(255,0,0)):
+    h, w = code_grid.shape
+    width_px = w * bead_size + 2 * margin
+    height_px = h * bead_size + 2 * margin
+    img = Image.new("RGB", (width_px, height_px), "white")
+    draw = ImageDraw.Draw(img)
+    
+    # Police pour les codes couleur
+    if font_path is not None:
+        font = ImageFont.truetype(font_path, int(bead_size/2))
+    else:
+        try:
+            font = ImageFont.truetype("arial.ttf", int(bead_size/2.7))
+        except:
+            font = ImageFont.load_default()
+
+
+    # Cercles par perle
+    for i in range(h):
+        for j in range(w):
+            if code_grid[i, j] == '' or (alpha_grid is not None and alpha_grid[i, j] == 0):
+                continue
+            color = tuple(color_grid[i, j])
+            code = str(code_grid[i, j])
+            x = margin + j * bead_size
+            y = margin + i * bead_size
+            bbox = [x, y, x+bead_size, y+bead_size]
+            draw.ellipse(bbox, fill=color, outline="grey", width=2)
+
+            # Couleur du texte selon la luminosité
+            luminance = 0.299 * color[0] + 0.587 * color[1] + 0.114 * color[2]
+            txt_color = "white" if luminance < 128 else "black"
+
+            # Centrage texte
+            try:
+                bbox_txt = font.getbbox(code)
+            except AttributeError:
+                bbox_txt = draw.textbbox((0, 0), code, font=font)
+            wtxt = bbox_txt[2] - bbox_txt[0]
+            htxt = bbox_txt[3] - bbox_txt[1]
+            offset = 1
+            # Contour blanc si txt_color est noir, ou noir sinon
+            outline_color = "black" if txt_color == "white" else "white"
+            for dx in [-offset, 0, offset]:
+                for dy in [-offset, 0, offset]:
+                    if dx == 0 and dy == 0:
+                        continue
+                    draw.text(
+                        (x + bead_size/2 - wtxt/2 + dx, y + bead_size/2 - htxt/2 + dy),
+                        code, fill=outline_color, font=font
+                    )
+
+            draw.text(
+                (x + bead_size/2 - wtxt/2, y + bead_size/2 - htxt/2),
+                code,
+                fill=txt_color,
+                font=font
+            )
+
+    
+    # Ajoute nom du bloc si précisé
+    if block_name:
+        label = f"Bloc {block_name}"
+        draw.text((margin, 2), label, fill="red", font=font)
+    
+    # Option: traits rouges pour la grille des blocs (pour l’image complète uniquement)
+    if block_size and grid_color:
+        # Traits verticaux
+        for x in range(block_size, w, block_size):
+            px = margin + x * bead_size
+            draw.line([(px, margin), (px, margin + h * bead_size)], fill=grid_color, width=1)
+        # Traits horizontaux
+        for y in range(block_size, h, block_size):
+            py = margin + y * bead_size
+            draw.line([(margin, py), (margin + w * bead_size, py)], fill=grid_color, width=1)
+    
+    return img
+
+
+
 # --- App Streamlit ---
 st.title("Perler Art Pixelizer")
 
@@ -287,18 +402,26 @@ if palette_df is not None:
     rgb_palette = np.array(rgb_palette)
 
     st.subheader("Aperçu de la palette")
-    ncols = 30
-    cols = st.columns(ncols)
+    cell_size = 32
+    colors_html = ""
     for idx, row in palette_df.iterrows():
         try:
             color = '#{:02X}{:02X}{:02X}'.format(int(row['R']), int(row['G']), int(row['B']))
         except:
             continue
-        with cols[idx % ncols]:
-            st.markdown(
-                f"<div style='width:24px; height:24px; background:{color}; margin:auto; border-radius:4px; border:1px solid #888'></div>",
-                unsafe_allow_html=True
-            )
+        code_str = str(row["Code"])
+        txt_col = "#fff" if int(row['R'])*0.299 + int(row['G'])*0.587 + int(row['B'])*0.114 < 128 else "#000"
+        colors_html += f"""
+            <div style='
+                width:{cell_size}px; height:{cell_size}px; background:{color};
+                display:inline-block; margin:5px 4px 0 0; border-radius:8px; border:1.5px solid #888; vertical-align:top; position:relative; text-align:center;'>
+                <span style='position:absolute; left:0; right:0; bottom:2px; font-size:0.7em; color:{txt_col}; font-family:monospace;'></span>
+            </div>
+        """
+    st.markdown(colors_html, unsafe_allow_html=True)
+
+
+
 
 uploaded_file = st.file_uploader("Uploader une image", type=['jpg', 'jpeg', 'png'])
 
@@ -452,6 +575,13 @@ if uploaded_file is not None:
         counts = Counter([code for code in code_list if code != '' and code is not None])
         sorted_counts = sorted(counts.items(), key=lambda x: -x[1])
         df_récap = pd.DataFrame(sorted_counts, columns=['Code couleur', 'Quantité'])
+        # Calcul du nombre de blocs
+        n_blocks_rows = math.ceil(code_grid.shape[0] / block_size)
+        n_blocks_cols = math.ceil(code_grid.shape[1] / block_size)
+        n_blocks_total = n_blocks_rows * n_blocks_cols
+
+        # Affichage du nombre total de blocs juste avant le tableau récapitulatif
+        st.markdown(f"**Nombre total de blocs : {n_blocks_total}**")
         st.subheader("Récapitulatif des perles nécessaires :")
         st.dataframe(df_récap, hide_index=True)
 
@@ -469,12 +599,25 @@ if uploaded_file is not None:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
             # Export PDF (tout en un)
-            pdf_file = export_to_pdf(code_grid, result_img, sorted_counts)
+            # pdf_file = export_to_pdf(code_grid, result_img, sorted_counts)
+            # st.download_button(
+            #     label="Télécharger l'export PDF",
+            #     data=pdf_file,
+            #     file_name="perler_export.pdf",
+            #     mime="application/pdf"
+            # )
+
+
+            #Export en PNG
+            img_png = make_bead_grid_image(code_grid, result_img, alpha_arr, rgb_to_code, bead_size=80, margin=10, block_size=block_size, grid_color=(255,0,0))
+            buf_png = BytesIO()
+            img_png.save(buf_png, format='PNG')
+            buf_png.seek(0)
             st.download_button(
-                label="Télécharger l'export PDF",
-                data=pdf_file,
-                file_name="perler_export.pdf",
-                mime="application/pdf"
+                label="Télécharger le PNG grille complète",
+                data=buf_png,
+                file_name="perler_complete.png",
+                mime="image/png"
             )
         else:
             # Split en blocs
@@ -489,23 +632,36 @@ if uploaded_file is not None:
             code_list_all = code_grid.flatten()
             counts_all = Counter([code for code in code_list_all if code != '' and code is not None])
             sorted_counts_all = sorted(counts_all.items(), key=lambda x: -x[1])
-            excel_file = export_to_excel_multi(
-                code_blocks, img_blocks, alpha_blocks, rgb_to_code, block_size, 
-                sorted_counts_all, code_grid.shape
-            )
+            with st.spinner("Préparation de l'export Excel…"):
+                excel_file = export_to_excel_multi(
+                    code_blocks, img_blocks, alpha_blocks, rgb_to_code, block_size, 
+                    sorted_counts_all, code_grid.shape
+                )
             st.download_button(
                 label="Télécharger le fichier Excel (blocs)",
                 data=excel_file,
                 file_name="perler_export_blocs.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+            
             # PDF multipages
-            pdf_file = export_to_pdf_multi(code_blocks, img_blocks, block_size)
+            # pdf_file = export_to_pdf_multi(code_blocks, img_blocks, block_size)
+            # st.download_button(
+            #     label="Télécharger le fichier PDF (blocs)",
+            #     data=pdf_file,
+            #     file_name="perler_export_blocs.pdf",
+            #     mime="application/pdf"
+            # )
+
+            #Export en PNG
+            with st.spinner("Préparation de l'export PNG…"):
+                zip_png = export_png_and_zip(code_grid, result_img, alpha_arr, rgb_to_code, block_size)
+
             st.download_button(
-                label="Télécharger le fichier PDF (blocs)",
-                data=pdf_file,
-                file_name="perler_export_blocs.pdf",
-                mime="application/pdf"
+                label="Télécharger le ZIP PNG (image + blocs)",
+                data=zip_png,
+                file_name="perler_blocs.zip",
+                mime="application/zip"
             )
 
 else:
