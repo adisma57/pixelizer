@@ -161,7 +161,6 @@ def main():
                     t("width_label", lang),
                     min_value=8,
                     max_value=5000,
-                    value=int(st.session_state.input_width),
                     step=1,
                     key="input_width"
                 )
