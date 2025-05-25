@@ -7,104 +7,99 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
 def export_to_excel_multi(code_blocks, img_blocks, alpha_blocks, rgb_to_code, block_size, global_counts, grid_shape):
+    import openpyxl
+    from openpyxl.styles import PatternFill, Alignment, Font, Side, Border
+    from openpyxl.utils import get_column_letter
+    from io import BytesIO
+
     wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Perler Blocks"
-
-    nrows, ncols = grid_shape
-
-    # On transforme la liste de tuples en un dict indexé par (block_i, block_j)
-    block_dict = {}
-    for entry in code_blocks:
-        if isinstance(entry, tuple) and len(entry) == 3:
-            i, j, block = entry
-            block_dict[(i, j)] = block
-
-    # Remplissage du tableau principal
-    for i in range(nrows):
-        for j in range(ncols):
-            block_i = i // block_size
-            block_j = j // block_size
-            sub_i = i % block_size
-            sub_j = j % block_size
-            code = ''
-            bloc = block_dict.get((block_i, block_j))
-            if bloc is not None and hasattr(bloc, 'shape'):
-                if sub_i < bloc.shape[0] and sub_j < bloc.shape[1]:
-                    code = str(bloc[sub_i][sub_j])
-            cell = ws.cell(row=i+1, column=j+1)
-            cell.value = code
-            cell.alignment = Alignment(horizontal='center', vertical='center')
-
-            # Coloration si code connu
-            if code and code in rgb_to_code:
-                rgb = rgb_to_code[code]['rgb']
-                try:
-                    rgb = tuple(int(float(x)) for x in rgb)
-                    hex_color = '{0:02X}{1:02X}{2:02X}'.format(*rgb)
-                except Exception as e:
-                    print(f"Erreur conversion couleur: code={code} rgb={rgb} err={e}")
-                    hex_color = "FFFFFF"
-                cell.fill = PatternFill(
-                    start_color=hex_color,
-                    end_color=hex_color,
-                    fill_type='solid'
-                )
-                # Choix automatique du contraste police
-                luminance = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
-                font_color = "FFFFFF" if luminance < 128 else "000000"
-                cell.font = Font(size=10, color=font_color)
-            elif not code:
-                cell.fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
-
-            # Bordure fine grise
-            side = Side(border_style="thin", color="CCCCCC")
-            cell.border = Border(left=side, right=side, top=side, bottom=side)
-            # Bordure épaisse noire tous les 10
-            if (j+1) % 10 == 0:
-                cell.border = Border(
-                    right=Side(border_style="medium", color="000000"),
-                    left=side, top=side, bottom=side
-                )
-            if (i+1) % 10 == 0:
-                cell.border = Border(
-                    bottom=Side(border_style="medium", color="000000"),
-                    right=cell.border.right, left=side, top=side
-                )
-            # Bordure épaisse rouge tous les block_size
-            if block_size and (j+1) % block_size == 0:
-                cell.border = Border(
-                    right=Side(border_style="medium", color="FF2222"),
-                    left=side, top=side, bottom=side
-                )
-            if block_size and (i+1) % block_size == 0:
-                cell.border = Border(
-                    bottom=Side(border_style="medium", color="FF2222"),
-                    right=cell.border.right, left=side, top=side
-                )
-
-    # Cellules carrées
-    col_width = 5
-    row_height = 24
-    for col in range(1, ncols + 1):
-        ws.column_dimensions[get_column_letter(col)].width = col_width
-    for row in range(1, nrows + 1):
-        ws.row_dimensions[row].height = row_height
+    recap_ws = wb.active
+    recap_ws.title = "Récap"
 
     # Récap des couleurs
-    recap_start = nrows + 3
     if global_counts:
-        ws.cell(row=recap_start, column=1, value="Code couleur")
-        ws.cell(row=recap_start, column=2, value="Quantité")
-        ws.cell(row=recap_start, column=1).font = Font(bold=True)
-        ws.cell(row=recap_start, column=2).font = Font(bold=True)
-        for idx, (code, qty) in enumerate(global_counts, start=1):
-            ws.cell(row=recap_start+idx, column=1, value=code)
-            ws.cell(row=recap_start+idx, column=2, value=qty)
+        recap_ws.cell(row=1, column=1, value="Code couleur")
+        recap_ws.cell(row=1, column=2, value="Quantité")
+        recap_ws.cell(row=1, column=1).font = Font(bold=True)
+        recap_ws.cell(row=1, column=2).font = Font(bold=True)
+        for idx, (code, qty) in enumerate(global_counts, start=2):
+            recap_ws.cell(row=idx, column=1, value=code)
+            recap_ws.cell(row=idx, column=2, value=qty)
+
+    # Bordures
+    thin_black = Side(border_style="thin", color="000000")
+    thick_black = Side(border_style="medium", color="000000")  # ~3px
+    thick_red = Side(border_style="medium", color="FF0000")    # ~3px
+
+    # Onglet par bloc
+    for entry in code_blocks:
+        if isinstance(entry, tuple) and len(entry) == 3:
+            i, j, cblock = entry
+            sheet_name = f"Bloc_{i//block_size}_{j//block_size}"
+            ws = wb.create_sheet(title=sheet_name)
+            h, w = cblock.shape
+            for x in range(h):
+                for y in range(w):
+                    code = str(cblock[x, y])
+                    cell = ws.cell(row=x+1, column=y+1)
+                    cell.value = code
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                    # Coloration si code connu
+                    if code and code in rgb_to_code:
+                        # Accepts dict or tuple for rgb_to_code
+                        rgb = rgb_to_code[code]['rgb'] if isinstance(rgb_to_code[code], dict) else rgb_to_code[code]
+                        try:
+                            rgb = tuple(int(float(xx)) for xx in rgb)
+                            hex_color = '{0:02X}{1:02X}{2:02X}'.format(*rgb)
+                        except Exception:
+                            hex_color = "FFFFFF"
+                        cell.fill = PatternFill(
+                            start_color=hex_color,
+                            end_color=hex_color,
+                            fill_type='solid'
+                        )
+                        luminance = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
+                        font_color = "FFFFFF" if luminance < 128 else "000000"
+                        cell.font = Font(size=10, color=font_color)
+                    elif not code:
+                        cell.fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
+                    # ---- Bordures ----
+                    left_side = thin_black
+                    top_side = thin_black
+                    right_side = thin_black
+                    bottom_side = thin_black
+
+                    # Grosse bordure noire chaque 10 cellules
+                    if (x+1) % 10 == 0:
+                        bottom_side = thick_red
+                    if (y+1) % 10 == 0:
+                        right_side = thick_red
+                    
+
+                    cell.border = Border(
+                        left=left_side,
+                        top=top_side,
+                        right=right_side,
+                        bottom=bottom_side
+                    )
+
+
+            # Ajustement tailles
+            col_width = 5
+            row_height = 24
+            for col in range(1, w + 1):
+                ws.column_dimensions[get_column_letter(col)].width = col_width
+            for row in range(1, h + 1):
+                ws.row_dimensions[row].height = row_height
+
+    # Supprime la feuille par défaut si vide
+    if "Sheet" in wb.sheetnames and len(wb.sheetnames) > 1:
+        del wb["Sheet"]
 
     out = BytesIO()
     wb.save(out)
     return out.getvalue()
+
 
 def make_bead_grid_image(
     code_grid, color_grid, alpha_grid, rgb_to_code, bead_size=80, margin=10, font_path=None,
