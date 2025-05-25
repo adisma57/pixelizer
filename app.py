@@ -192,7 +192,7 @@ def main():
                     f"""
                     <div style='display:flex; justify-content:center;'>
                         <img src='data:image/png;base64,{pil_to_base64(img_mod_disp)}'
-                            style='border:2px solid #888; border-radius:12px; box-shadow:0 0 6px #aaa; image-rendering:pixelated; display:block;'/>
+                            style='border:2px solid #888; border-radius:12px; box-shadow:0 0 6px #aaa; image-rendering:pixelated; display:block;max-height:480px'/>
                     </div>
                     """,
                     unsafe_allow_html=True
