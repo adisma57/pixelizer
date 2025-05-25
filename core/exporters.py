@@ -103,7 +103,7 @@ def export_to_excel_multi(code_blocks, img_blocks, alpha_blocks, rgb_to_code, bl
 
 def make_bead_grid_image(
     code_grid, color_grid, alpha_grid, rgb_to_code, bead_size=80, margin=10, font_path=None,
-    block_name=None, block_size=None
+    block_name=None, block_size=None, grid_color=(255,0,0), show_codes=True
 ):
     from PIL import Image, ImageDraw, ImageFont
     h, w = code_grid.shape
@@ -184,41 +184,44 @@ def make_bead_grid_image(
 
     return img
 
-def export_png_and_zip(code_grid, color_grid, alpha_grid, rgb_to_code, block_size, font_path=None):
-    from io import BytesIO
+def export_png_and_zip(code_grid, color_grid, alpha_grid, rgb_to_code, block_size, font_path=None, bead_size=48, add_codes=True, add_grid=True):
+    from PIL import Image
     import zipfile
-    from core.image_processing import split_grid
+    from io import BytesIO
 
-    h, w = code_grid.shape
+    # Génère l'image complète UNE FOIS
     img_full = make_bead_grid_image(
         code_grid, color_grid, alpha_grid, rgb_to_code,
-        bead_size=80, margin=10, font_path=font_path,
-        block_size=block_size
+        bead_size=bead_size, margin=10, font_path=font_path,
+        block_size=block_size if add_grid else None,
+        grid_color=(255,0,0) if add_grid else None,
+        show_codes=add_codes
     )
     buf_full = BytesIO()
     img_full.save(buf_full, format='PNG')
     buf_full.seek(0)
+    h, w = code_grid.shape
 
-    code_blocks = split_grid(code_grid, block_size)
-    color_blocks = split_grid(color_grid, block_size)
-    alpha_blocks = split_grid(alpha_grid, block_size)
-    block_imgs = []
-    for (i, j, cblock), (_, _, clblock), (_, _, alblock) in zip(code_blocks, color_blocks, alpha_blocks):
-        block_name = f"{i//block_size},{j//block_size}"
-        img_block = make_bead_grid_image(
-            cblock, clblock, alblock, rgb_to_code,
-            bead_size=80, margin=10, block_name=block_name,
-            block_size=block_size
-        )
-        buf_block = BytesIO()
-        img_block.save(buf_block, format='PNG')
-        buf_block.seek(0)
-        block_imgs.append((block_name, buf_block))
-
+    # Prépare le zip
     zip_buffer = BytesIO()
     with zipfile.ZipFile(zip_buffer, 'w') as zipf:
         zipf.writestr('image_complete.png', buf_full.read())
-        for block_name, buf in block_imgs:
-            zipf.writestr(f'bloc_{block_name}.png', buf.read())
+
+        # Découpe chaque bloc depuis l'image complète (CROP)
+        for i in range(0, h, block_size):
+            for j in range(0, w, block_size):
+                # Attention : adapte la marge à ta fonction !
+                x0 = 10 + j * bead_size
+                y0 = 10 + i * bead_size
+                x1 = x0 + block_size * bead_size
+                y1 = y0 + block_size * bead_size
+                block_img = img_full.crop((x0, y0, x1, y1))
+                buf_block = BytesIO()
+                block_img.save(buf_block, format='PNG')
+                buf_block.seek(0)
+                block_name = f"{i//block_size},{j//block_size}"
+                zipf.writestr(f'bloc_{block_name}.png', buf_block.read())
+
     zip_buffer.seek(0)
     return zip_buffer
+
