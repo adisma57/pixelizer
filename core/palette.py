@@ -1,7 +1,7 @@
 import pandas as pd
 
 def get_palette_choices():
-    return ["Artkal Mini C", "Artkal Midi S", "Hama", "Perler"]
+    return ["Artkal Mini C", "Artkal Midi S", "Hama", "Perler", "DMC"]
 
 def load_palette(choice, st):
     palettes = {
@@ -9,7 +9,7 @@ def load_palette(choice, st):
         "Hama": "hama.csv",
         "Artkal Midi S": "artkal_s_midi.csv",
         "Perler": "perler.csv",
-        "Importer mon CSV...": None
+        "DMC" : "DMC.csv"
     }
     if choice != "Importer mon CSV...":
         palette_filename = palettes[choice]
