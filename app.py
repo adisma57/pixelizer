@@ -457,6 +457,23 @@ def main():
                             file_name="pixelizer_export.zip",
                             mime="application/zip"
                         )
+    
+    label = "☕ Buy me a coffee" if lang == "en" else "☕ Offrir un café"
+    st.markdown(
+        f"""
+        <div style="text-align: center; margin-top: 1em;">
+            <a href="https://www.buymeacoffee.com/pix4geeks" target="_blank"
+            style="font-size:14px; display:inline-block; padding:3px 9px; background:#FFD600; border-radius:8px; text-decoration:none; color:#222; font-weight:600;">
+                {label}
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+
+
 
 if __name__ == "__main__":
     main()

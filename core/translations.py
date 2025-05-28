@@ -51,4 +51,5 @@ translations = {
     "choices_saved": {"fr": "Vos choix sont enregistrés automatiquement ! Retournez sur la page principale pour les utiliser.", "en": "Your choices are saved automatically! Return to the main page to use them."},
     "back_pixelizer": {"fr": "⬅️ Retour à Pixelizer", "en": "⬅️ Back to Pixelizer"},
     "menu_gestion" : {"fr": "Gestion palette", "en": "Palette manager"},
+    "support_me": {"fr": "Soutiens le projet !", "en": "Support me!"},
 }
