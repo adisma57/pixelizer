@@ -5,6 +5,7 @@ import numpy as np
 import base64
 from io import BytesIO
 import math
+import re
 from collections import Counter
 from streamlit_option_menu import option_menu
 from core.translations import translations
@@ -15,6 +16,17 @@ from core.image_processing import (
 )
 from core.exporters import export_to_excel_multi, export_png_and_zip
 from utils.streamlit_helpers import display_palette_preview
+
+def code_sort_key(code):
+    # Extraire lettres + nombre (ex: 'c10' → ('c', 10))
+    match = re.match(r"([a-zA-Z]+)(\d+)", str(code))
+    if match:
+        prefix, number = match.groups()
+        return (prefix.lower(), int(number))
+    else:
+        return (str(code).lower(), 0)
+
+
 
 def t(key, lang):
     return translations.get(key, {}).get(lang, translations.get(key, {}).get("fr", key))
@@ -123,6 +135,10 @@ def main():
 
     # --- Chargement de la palette et application du filtre ---
     palette_df = load_palette(st.session_state["current_palette"], st)
+    palette_df = palette_df.copy()  # évite SettingWithCopyWarning
+    palette_df["__sortkey__"] = palette_df["Code"].apply(code_sort_key)
+    palette_df = palette_df.sort_values("__sortkey__").drop(columns="__sortkey__").reset_index(drop=True)
+
     if palette_df is not None:
         if "ignored_colors" not in st.session_state or st.session_state.get("palette_filter_name", "") != st.session_state["current_palette"]:
             st.session_state.ignored_colors = set()

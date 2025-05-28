@@ -2,6 +2,17 @@ import streamlit as st
 from core.palette import get_palette_choices, load_palette
 from core.translations import translations
 from streamlit_option_menu import option_menu
+import re
+
+def code_sort_key(code):
+    # Extraire lettres + nombre (ex: 'c10' → ('c', 10))
+    match = re.match(r"([a-zA-Z]+)(\d+)", str(code))
+    if match:
+        prefix, number = match.groups()
+        return (prefix.lower(), int(number))
+    else:
+        return (str(code).lower(), 0)
+
 
 def t(key, lang):
     return translations.get(key, {}).get(lang, translations.get(key, {}).get("fr", key))
@@ -61,6 +72,10 @@ def main():
         st.rerun()
 
     palette_df = load_palette(st.session_state["current_palette"], st)
+    palette_df = palette_df.copy()  # évite SettingWithCopyWarning
+    palette_df["__sortkey__"] = palette_df["Code"].apply(code_sort_key)
+    palette_df = palette_df.sort_values("__sortkey__").drop(columns="__sortkey__").reset_index(drop=True)
+
     if palette_df is not None:
         if "ignored_colors" not in st.session_state or st.session_state.get("palette_filter_name", "") != st.session_state["current_palette"]:
             st.session_state.ignored_colors = set()
