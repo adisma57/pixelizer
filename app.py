@@ -4,9 +4,9 @@ import pandas as pd
 import numpy as np
 import base64
 from io import BytesIO
-from collections import Counter
 import math
-
+from collections import Counter
+from streamlit_option_menu import option_menu
 from core.translations import translations
 from core.palette import get_palette_choices, load_palette
 from core.image_processing import (
@@ -16,7 +16,7 @@ from core.image_processing import (
 from core.exporters import export_to_excel_multi, export_png_and_zip
 from utils.streamlit_helpers import display_palette_preview
 
-st.set_page_config(page_title="Pïxelizer", layout="wide")
+st.set_page_config(page_title="Pïxelizer", layout="wide", initial_sidebar_state="collapsed")
 
 def t(key, lang):
     return translations.get(key, {}).get(lang, translations.get(key, {}).get("fr", key))
@@ -27,12 +27,60 @@ def pil_to_base64(img):
     b64 = base64.b64encode(buf.getvalue()).decode()
     return b64
 
+def display_palette_preview_only_selected(palette_df, ignored_colors):
+    selected_df = palette_df[~palette_df['Code'].isin(ignored_colors)].reset_index(drop=True)
+    html = """
+    <div style="display: flex; flex-wrap: wrap; gap: 8px 6px; align-items: flex-start; margin-bottom: 6px;">
+    """
+    for _, row in selected_df.iterrows():
+        r, g, b = int(row['R']), int(row['G']), int(row['B'])
+        color_code = row['Code']
+        luminance = 0.299 * r + 0.587 * g + 0.114 * b
+        txt_color = "#111" if luminance > 180 else "#fff"
+        html += f"""<div style='
+            width: 27px; height: 27px; border-radius: 6px;
+            background: rgb({r},{g},{b});
+            border: 2px solid #fff4; box-shadow: 0 1px 7px #0005;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 11px; font-weight: 700;
+            letter-spacing:0.3px; color:{txt_color}; text-shadow: 1px 1px 2px #0007;
+            margin: 0;
+        '>{color_code}</div>
+        """
+    html += "</div>"
+    st.markdown(html, unsafe_allow_html=True)
+    return len(selected_df)
+
 def main():
-    # -- LANG SELECTOR TOP RIGHT --
     if "lang" not in st.session_state:
         st.session_state["lang"] = "fr"
     lang = st.session_state["lang"]
 
+    selected = option_menu(
+        None,
+        ["Pixelizer", t("menu_gestion", lang)],
+        icons=["palette2", "gear"],  # Ou ["brush", "gear"] etc.
+        menu_icon="cast",
+        default_index=0,
+        orientation="horizontal",
+        styles={
+            "container": {"padding": "0!important", "background-color": "#23242a"},
+            "icon": {"color": "white", "font-size": "18px"},
+            "nav-link": {
+                "color": "white",
+                "font-size": "16px",
+                "text-align": "center",
+                "margin": "0px",
+                "border-radius": "6px",
+            },
+            "nav-link-selected": {"background-color": "#ffd600", "color": "#111"},
+        },
+    )
+
+    if selected == t("menu_gestion", lang):
+        st.switch_page("pages/palette_manager.py")
+
+    # Titre et langue
     col_title, col_flag1, col_flag2 = st.columns([0.96, 0.02, 0.02])
     with col_title:
         st.markdown(
@@ -51,38 +99,57 @@ def main():
             st.rerun()
     lang = st.session_state["lang"]
 
+    # Palette sélectionnée
     palette_choices = get_palette_choices()
     palette_choice = st.selectbox(t("choose_palette", lang), palette_choices)
 
-    # PATCH: Reset state on palette change
     if "last_palette" not in st.session_state:
         st.session_state.last_palette = palette_choice
     if palette_choice != st.session_state.last_palette:
         for key in [
             "code_grid_full", "result_img_full", "rgb_to_code", "alpha_arr", "nb_colors_full",
-            "block_size", "input_width", "slider_width"
+            "block_size", "input_width", "slider_width", "ignored_colors", "palette_filter_name"
         ]:
             if key in st.session_state:
                 del st.session_state[key]
         st.session_state.last_palette = palette_choice
         st.rerun()
 
+    # --- Chargement de la palette et application du filtre ---
     palette_df = load_palette(palette_choice, st)
     if palette_df is not None:
-        st.subheader(t("palette_preview", lang))
-        display_palette_preview(palette_df, st)
+        if "ignored_colors" not in st.session_state or st.session_state.get("palette_filter_name", "") != palette_choice:
+            st.session_state.ignored_colors = set()
+            st.session_state.palette_filter_name = palette_choice
 
+        filtered_palette_df = palette_df[~palette_df['Code'].isin(st.session_state.ignored_colors)].reset_index(drop=True)
+        if len(filtered_palette_df) == 0:
+            st.error(t("need_one_color", lang))
+            filtered_palette_df = palette_df.copy()
+
+        # --- Aperçu palette filtrée uniquement ---
+        st.subheader(t("palette_overview", lang))
+        if len(st.session_state.ignored_colors) > 0:
+            st.markdown(
+                f"<span style='background:#FFD600;padding:4px 12px 4px 12px;border-radius:8px;font-size:15px;font-weight:700;color:#444;margin-left:10px;'>{t('palette_preview_custom', lang)}</span>",
+                unsafe_allow_html=True
+            )
+
+        with st.container():
+            display_palette_preview_only_selected(palette_df, st.session_state.ignored_colors)
+
+        # --- Upload de l'image ---
         uploaded_file = st.file_uploader(t("upload_img", lang), type=['jpg', 'jpeg', 'png'])
         if uploaded_file is not None:
             img_orig = Image.open(uploaded_file)
             if 'last_image_name' not in st.session_state or st.session_state.last_image_name != uploaded_file.name:
                 st.session_state.input_width = img_orig.width
                 st.session_state.last_image_name = uploaded_file.name
-                
 
             if img_orig.mode != "RGBA":
                 img_orig = img_orig.convert("RGBA")
 
+            # --- Options d'ajustement image (gris, postérisation, contraste) ---
             col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
             with col_btn1:
                 use_gray = st.checkbox(t("gray", lang), value=False, key="gray_toggle")
@@ -92,6 +159,7 @@ def main():
                 use_contrast = st.checkbox(t("contrast", lang), value=False, key="contrast_toggle")
 
             img_mod = img_orig.copy()
+            # -- Mode gris --
             if use_gray:
                 if img_mod.mode == "RGBA":
                     r, g, b, a = img_mod.split()
@@ -100,7 +168,7 @@ def main():
                 else:
                     gray = img_mod.convert("L")
                     img_mod = Image.merge("RGB", (gray, gray, gray))
-
+            # -- Posterisation --
             if use_poster:
                 n_levels = st.slider(t("levels", lang), min_value=2, max_value=12, value=4)
                 arr = np.array(img_mod)
@@ -129,18 +197,19 @@ def main():
                 else:
                     img_mod = Image.fromarray(new_rgb, "RGB")
 
-            # Slider contraste AVANT Redimensionner
+            # -- Contraste (avant resize) --
             if use_contrast:
                 contrast_value = st.slider(
-                    t("contrast_slider", lang), 
-                    min_value=0.5, 
-                    max_value=2.5, 
-                    value=1.0, 
+                    t("contrast_slider", lang),
+                    min_value=0.5,
+                    max_value=2.5,
+                    value=1.0,
                     step=0.05
                 )
             else:
                 contrast_value = 1.0
 
+            # --- Ajustement de la taille (redimensionnement) ---
             st.markdown(f"### {t('resize_title', lang)}")
             if "initial_width" not in st.session_state:
                 st.session_state.initial_width = img_mod.width
@@ -171,7 +240,7 @@ def main():
 
             resized_img = resize_and_contrast(img_mod, width, contrast_value)
 
-            # Affichage images haut
+            # --- Affichage images avant/après ---
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"<div style='text-align:center; font-size:20px; font-weight:600;'>{t('original_img', lang)}</div>", unsafe_allow_html=True)
@@ -198,8 +267,7 @@ def main():
                     unsafe_allow_html=True
                 )
 
-
-            # ============= SUITE DE L'APPLI =============
+            # --- Export/conversion ---
             st.markdown(f"### {t('export_title', lang)}")
             colb1, colb2, colb3, colb4, colb5 = st.columns([1,1,1,2,1])
             if "block_size" not in st.session_state:
@@ -227,9 +295,9 @@ def main():
 
             if convert_clicked:
                 with st.spinner(t("convert_in_progress", lang)):
-                    rgb_palette = palette_df.dropna(subset=['R', 'G', 'B'])[['R', 'G', 'B']].to_numpy().astype(int)
+                    rgb_palette = filtered_palette_df.dropna(subset=['R', 'G', 'B'])[['R', 'G', 'B']].to_numpy().astype(int)
                     code_grid, result_img, alpha_arr, rgb_to_code = convert_image_to_palette(
-                        resized_img, palette_df, rgb_palette, palette_df
+                        resized_img, filtered_palette_df, rgb_palette, filtered_palette_df
                     )
                 st.session_state.code_grid_full = code_grid
                 st.session_state.result_img_full = result_img
@@ -302,37 +370,71 @@ def main():
                 code_list_all = code_grid.flatten()
                 counts_all = Counter([code for code in code_list_all if code != '' and code is not None])
                 sorted_counts_all = sorted(counts_all.items(), key=lambda x: -x[1])
-                
+
                 rgb_to_code = {
                     str(row['Code']): {'rgb': (int(row['R']), int(row['G']), int(row['B']))}
-                    for idx, row in palette_df.iterrows()
-                    if not pd.isnull(row['R']) and not pd.isnull(row['Code'])
+                    for _, row in filtered_palette_df.iterrows()
                 }
-                
-                with st.spinner(t("export_excel_prep", lang)):
-                    excel_file = export_to_excel_multi(
-                        code_blocks, img_blocks, alpha_blocks, rgb_to_code, block_size, 
-                        sorted_counts_all, code_grid.shape
-                    )
-                st.download_button(
-                    label=t("download_excel", lang),
-                    data=excel_file,
-                    file_name="perler_export_blocs.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-                with st.spinner(t("export_png_prep", lang)):
-                    zip_png = export_png_and_zip(code_grid, result_img, alpha_arr, rgb_to_code, block_size)
-                st.download_button(
-                    label=t("download_zip", lang),
-                    data=zip_png,
-                    file_name="perler_blocs.zip",
-                    mime="application/zip"
-                )
-        else:
-            st.info(t("load_img_info", lang))
-    else:
-        st.info(t("load_img_info", lang))
 
+                # Initialisation session state si besoin
+                if "export_excel_ready" not in st.session_state:
+                    st.session_state.export_excel_ready = False
+                if "export_excel" not in st.session_state:
+                    st.session_state.export_excel = None
+                if "export_png_ready" not in st.session_state:
+                    st.session_state.export_png_ready = False
+                if "export_png" not in st.session_state:
+                    st.session_state.export_png = None
+
+                code_blocks = split_grid(code_grid, block_size)
+                img_blocks = split_grid(result_img, block_size)
+                alpha_blocks = split_grid(alpha_arr, block_size)
+                code_list_all = code_grid.flatten()
+                counts_all = Counter([code for code in code_list_all if code != '' and code is not None])
+
+                col_export1, col_export2 = st.columns(2)
+
+                with col_export1:
+                    if st.button(t("prepare_excel", lang)):
+                        with st.spinner(t("export_excel_prep", lang)):
+                            excel_bytes = export_to_excel_multi(
+                                code_blocks,
+                                img_blocks,
+                                alpha_blocks,
+                                rgb_to_code,
+                                block_size,
+                                counts_all,
+                                code_grid.shape
+                            )
+                            st.session_state.export_excel = excel_bytes
+                            st.session_state.export_excel_ready = True
+                    if st.session_state.export_excel_ready:
+                        st.download_button(
+                            label=t("download_excel", lang),
+                            data=st.session_state.export_excel,
+                            file_name="pixelizer_export.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+
+                with col_export2:
+                    if st.button(t("prepare_png", lang)):
+                        with st.spinner(t("export_png_prep", lang)):
+                            zip_png = export_png_and_zip(
+                                code_grid,
+                                result_img,
+                                alpha_arr,
+                                rgb_to_code,
+                                block_size
+                            )
+                            st.session_state.export_png = zip_png
+                            st.session_state.export_png_ready = True
+                    if st.session_state.export_png_ready:
+                        st.download_button(
+                            label=t("download_png", lang),
+                            data=st.session_state.export_png,
+                            file_name="pixelizer_export.zip",
+                            mime="application/zip"
+                        )
 
 if __name__ == "__main__":
     main()

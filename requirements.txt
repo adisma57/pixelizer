@@ -5,3 +5,4 @@ Pillow
 openpyxl
 reportlab
 opencv-python
+streamlit-option-menu

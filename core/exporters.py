@@ -22,7 +22,7 @@ def export_to_excel_multi(code_blocks, img_blocks, alpha_blocks, rgb_to_code, bl
         recap_ws.cell(row=1, column=2, value="Quantité")
         recap_ws.cell(row=1, column=1).font = Font(bold=True)
         recap_ws.cell(row=1, column=2).font = Font(bold=True)
-        for idx, (code, qty) in enumerate(global_counts, start=2):
+        for idx, (code, qty) in enumerate(global_counts.items(), start=2):
             recap_ws.cell(row=idx, column=1, value=code)
             recap_ws.cell(row=idx, column=2, value=qty)
 

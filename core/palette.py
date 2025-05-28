@@ -19,3 +19,10 @@ def load_palette(choice, st):
         if uploaded_palette:
             return pd.read_csv(uploaded_palette)
     return None
+
+
+def filter_palette(palette_df, ignored_codes):
+    """
+    Retourne une version filtrée de la palette, sans les codes spécifiés.
+    """
+    return palette_df[~palette_df["Code"].isin(ignored_codes)].reset_index(drop=True)
