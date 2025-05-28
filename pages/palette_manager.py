@@ -14,7 +14,12 @@ def main():
     if "lang" not in st.session_state:
         st.session_state["lang"] = "fr"
     lang = st.session_state["lang"]
-    
+
+    palette_choices = get_palette_choices()
+    if "current_palette" not in st.session_state:
+        st.session_state["current_palette"] = palette_choices[0]
+
+    # Menu navigation avec traduction dynamique
     selected = option_menu(
         None,
         ["Pixelizer", t("menu_gestion", lang)],
@@ -37,21 +42,29 @@ def main():
     )
 
     if selected == "Pixelizer":
-        st.switch_page("app.py")  # Ou le chemin relatif selon ton projet
-
-    
+        st.switch_page("app.py")
 
     st.title(t("filter_palette", lang))
     st.info(t("info_palette_filter", lang))
 
-    palette_choices = get_palette_choices()
-    palette_choice = st.selectbox(t("choose_palette", lang), palette_choices)
+    # Synchronisation palette avec le state partagé
+    palette_choice = st.selectbox(
+        t("choose_palette", lang),
+        palette_choices,
+        index=palette_choices.index(st.session_state["current_palette"])
+    )
 
-    palette_df = load_palette(palette_choice, st)
+    if palette_choice != st.session_state["current_palette"]:
+        st.session_state["current_palette"] = palette_choice
+        st.session_state.ignored_colors = set()
+        st.session_state.palette_filter_name = palette_choice
+        st.rerun()
+
+    palette_df = load_palette(st.session_state["current_palette"], st)
     if palette_df is not None:
-        if "ignored_colors" not in st.session_state or st.session_state.get("palette_filter_name", "") != palette_choice:
+        if "ignored_colors" not in st.session_state or st.session_state.get("palette_filter_name", "") != st.session_state["current_palette"]:
             st.session_state.ignored_colors = set()
-            st.session_state.palette_filter_name = palette_choice
+            st.session_state.palette_filter_name = st.session_state["current_palette"]
 
         # Actions de masse
         col_btn1, col_btn2, col_btn3 = st.columns([1,1,2])

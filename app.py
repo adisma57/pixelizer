@@ -16,8 +16,6 @@ from core.image_processing import (
 from core.exporters import export_to_excel_multi, export_png_and_zip
 from utils.streamlit_helpers import display_palette_preview
 
-st.set_page_config(page_title="Pïxelizer", layout="wide", initial_sidebar_state="collapsed")
-
 def t(key, lang):
     return translations.get(key, {}).get(lang, translations.get(key, {}).get("fr", key))
 
@@ -52,14 +50,17 @@ def display_palette_preview_only_selected(palette_df, ignored_colors):
     return len(selected_df)
 
 def main():
+    st.set_page_config(page_title="Pixelizer", layout="wide", initial_sidebar_state="collapsed")
+
     if "lang" not in st.session_state:
         st.session_state["lang"] = "fr"
     lang = st.session_state["lang"]
 
+    # Menu principal avec traduction
     selected = option_menu(
         None,
         ["Pixelizer", t("menu_gestion", lang)],
-        icons=["palette2", "gear"],  # Ou ["brush", "gear"] etc.
+        icons=["palette2", "gear"],
         menu_icon="cast",
         default_index=0,
         orientation="horizontal",
@@ -99,28 +100,33 @@ def main():
             st.rerun()
     lang = st.session_state["lang"]
 
-    # Palette sélectionnée
+    # Gestion synchronisée de la palette
     palette_choices = get_palette_choices()
-    palette_choice = st.selectbox(t("choose_palette", lang), palette_choices)
+    if "current_palette" not in st.session_state:
+        st.session_state["current_palette"] = palette_choices[0]
 
-    if "last_palette" not in st.session_state:
-        st.session_state.last_palette = palette_choice
-    if palette_choice != st.session_state.last_palette:
+    palette_choice = st.selectbox(
+        t("choose_palette", lang),
+        palette_choices,
+        index=palette_choices.index(st.session_state["current_palette"])
+    )
+
+    if palette_choice != st.session_state["current_palette"]:
+        st.session_state["current_palette"] = palette_choice
         for key in [
             "code_grid_full", "result_img_full", "rgb_to_code", "alpha_arr", "nb_colors_full",
             "block_size", "input_width", "slider_width", "ignored_colors", "palette_filter_name"
         ]:
             if key in st.session_state:
                 del st.session_state[key]
-        st.session_state.last_palette = palette_choice
         st.rerun()
 
     # --- Chargement de la palette et application du filtre ---
-    palette_df = load_palette(palette_choice, st)
+    palette_df = load_palette(st.session_state["current_palette"], st)
     if palette_df is not None:
-        if "ignored_colors" not in st.session_state or st.session_state.get("palette_filter_name", "") != palette_choice:
+        if "ignored_colors" not in st.session_state or st.session_state.get("palette_filter_name", "") != st.session_state["current_palette"]:
             st.session_state.ignored_colors = set()
-            st.session_state.palette_filter_name = palette_choice
+            st.session_state.palette_filter_name = st.session_state["current_palette"]
 
         filtered_palette_df = palette_df[~palette_df['Code'].isin(st.session_state.ignored_colors)].reset_index(drop=True)
         if len(filtered_palette_df) == 0:
