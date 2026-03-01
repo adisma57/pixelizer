@@ -9,7 +9,8 @@ def load_palette(choice, st):
         "Hama": "hama.csv",
         "Artkal Midi S": "artkal_s_midi.csv",
         "Perler": "perler.csv",
-        "DMC" : "DMC.csv"
+        "DMC" : "DMC.csv",
+        "Mix Perler/Artkal" : "mix_perler_artkal.csv"
     }
     if choice != "Importer mon CSV...":
         palette_filename = palettes[choice]
