@@ -1,7 +1,7 @@
 import pandas as pd
 
 def get_palette_choices():
-    return ["Artkal Mini C", "Artkal Midi S", "Hama", "Perler", "DMC"]
+    return ["Artkal Mini C", "Artkal Midi S", "Hama", "Perler", "DMC", "Mix Perler/Artkal"]
 
 def load_palette(choice, st):
     palettes = {
